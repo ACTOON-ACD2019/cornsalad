@@ -3,6 +3,8 @@ using OpenCvSharp.Util;
 using OpenCvSharp.XImgProc;
 using System;
 using System.Linq;
+using System.Collections.Generic;
+using System.Threading;
 
 namespace kornsalad
 {
@@ -15,8 +17,17 @@ namespace kornsalad
         Size ImageSize { get; set; }
         Size SceneSize { get; set; }
         double Framerate { get; set; }
+
         VideoWriter TempWriter { get; set; }
+
+        Mat BaseMat { get; set; }
+
         string Filename { get; set; }
+        Point Position { get; set; }
+        int CurrentLayer { get; set; }
+
+        IEnumerator<Mat> PreLoadedMats;
+        List<Mat> PreWrittenMats;
 
         /// <summary>
         /// Make a effect base with provided image
@@ -24,59 +35,74 @@ namespace kornsalad
         /// <param name="inputImageName"></param>
         /// <param name="frameRate"></param>
         /// <param name="sceneSize"></param>
-        public Effector(string inputImageName, double frameRate, int[] sceneSize=null)
+        public Effector(double frameRate, Size sceneSize)
         {
-            Image = Cv2.ImRead(inputImageName);
+            Framerate = frameRate;
+            SceneSize = sceneSize;
+        }
+
+        public void Initialize(string bgColor, string preFormat = "mp4v")
+        {
+            PreWrittenMats = new List<Mat>();
+
+            if (bgColor == "white")
+                BaseMat = new Mat(SceneSize, MatType.CV_8UC4, new Scalar(255, 255, 255, 255)); // white background
+            else
+                BaseMat = new Mat(SceneSize, MatType.CV_8UC4, new Scalar(0, 0, 0, 255)); // black background
+
+            Filename = Renamer.CreateANewName(directory: ".", extension: "mp4");
+            Console.WriteLine("[x] initializing a new video file {0}", Filename);
+
+            CurrentLayer = 0;
+        }
+
+        public string Encode()
+        {
+            VideoWriter writer = new VideoWriter(Filename, "mp4v", Framerate, SceneSize);
+
+            Console.WriteLine("[x] closing a new video file {0}", Filename);
+
+            foreach (var frame in PreWrittenMats)
+                writer.Write(frame);
+
+            writer.Release();
+            PreWrittenMats.Clear();
+
+            return Filename;
+        }
+
+        public Effector AddLayer(string inputImageName, int posx = -1, int posy = -1)
+        {
+            ++CurrentLayer;
+
+            if (PreWrittenMats.Count() > 0)
+                PreLoadedMats = PreWrittenMats.GetEnumerator();
+            
+            Image = Cv2.ImRead(inputImageName, ImreadModes.Unchanged);
             ImageHeight = Image.Height;
             ImageWidth = Image.Width;
             ImageChannel = Image.Channels();
             ImageSize = new Size(ImageWidth, ImageHeight);
-            Framerate = frameRate;
 
-            if (sceneSize != null)
-                SceneSize = new Size(sceneSize[0], sceneSize[1]);
-            else SceneSize = ImageSize;
-        }
-
-        /// <summary>
-        /// Merge upper effector with base effector
-        /// </summary>
-        /// <param name="Effector">Upper layer effect</param>
-        public Effector(Effector upperEffector, Effector baseEffector)
-        {
-
-        }
-
-        public void Blending()
-        {
-
-        }
-
-        public void Initialize(string tempFilename = null, string preFormat = "mp4v")
-        {
-            if (tempFilename != null)
-            {
-                Filename = tempFilename;
-                TempWriter = new VideoWriter(tempFilename, preFormat, Framerate, ImageSize);
-            }
+            if (posx != -1)
+                Position = new Point(posx, posy);
             else
-            {
-                Filename = Renamer.CreateANewName(directory: ".", extension: "mp4");
-                TempWriter = new VideoWriter(Filename, preFormat, Framerate, ImageSize);
-            }
-        }
+                Position = new Point(
+                    SceneSize.Width / 2 - ImageSize.Width / 2,
+                    SceneSize.Height / 2 - ImageSize.Height / 2
+                );
 
-        public void Close()
-            => TempWriter.Release();
+            return this;
+        }
 
         private Mat _Translate(Mat image, int x, int y)
         {
             var array = new float[,] {
                         { 1, 0, x},
                         { 0, 1, y}
-                    };
+                };
 
-            Mat filter = new MatOfFloat(2, 3);
+            Mat filter = new Mat(2, 3, MatType.CV_32F);
             filter.SetArray(0, 0, array);
 
             return image.WarpAffine(filter, ImageSize);
@@ -95,45 +121,130 @@ namespace kornsalad
                 image.Size()
             );
         }
-
-        public void Earthquake(int earthPower, int earthSpeed, int earthTime)
+        
+        private Mat AlphaBlending(Mat data, int posX, int posY)
         {
+            var dataWidth = data.Size().Width;
+            var dataHeight = data.Size().Height;
+            var dataToBeFilled = new Scalar(0, 0, 0, 0);
+
+            Mat newMat;
+
+            newMat = data.CopyMakeBorder(
+                    top: posY,
+                    bottom: SceneSize.Height - dataHeight - posY,
+                    left: posX,
+                    right: SceneSize.Width - dataWidth - posX,
+                    borderType: BorderTypes.Constant,
+                    value: dataToBeFilled
+                );
+
+            if (PreLoadedMats != null)
+            {
+                PreLoadedMats.MoveNext();
+
+                var baseimg = PreLoadedMats.Current;
+                var newalpha = newMat.Split()[3];
+
+                Mat background = new Mat(SceneSize, MatType.CV_8UC3, 0);
+                Mat foreground = new Mat(SceneSize, MatType.CV_8UC3, 0);
+                Mat alpha = new Mat(SceneSize, MatType.CV_8UC3, 0);
+
+                baseimg = baseimg.CvtColor(ColorConversionCodes.RGBA2RGB);
+                baseimg.ConvertTo(background, MatType.CV_8UC3);
+
+                newMat = newMat.CvtColor(ColorConversionCodes.RGBA2RGB);
+                newMat.ConvertTo(foreground, MatType.CV_8UC3);
+
+                newalpha = newalpha.CvtColor(ColorConversionCodes.RGBA2RGB);
+                newalpha.ConvertTo(alpha, MatType.CV_8UC3);
+
+                Cv2.Multiply(alpha, foreground, foreground);
+                Cv2.Multiply(1 - (alpha / 255.0), background, background);
+                Cv2.Add(background, foreground, newMat);
+
+                background.Dispose();
+                foreground.Dispose();
+                alpha.Dispose();
+                BaseMat.Dispose();
+                newalpha.Dispose();
+            }
+            else
+                newMat.CopyTo(BaseMat, newMat.Split()[3]);
+
+            return newMat;
+        }
+
+        public Effector None(int duration)
+        {
+            PreWrittenMats = new List<Mat>();
+
+            for (var i = 0; i < Framerate * duration; i++)
+            {
+                var mat = AlphaBlending(Image, Position.X, Position.Y);
+                PreWrittenMats.Add(mat);
+            }
+
+            Cv2.ImWrite(string.Format("__preframe_{0}.jpg", CurrentLayer), PreWrittenMats[0]);
+
+            return this;
+        }
+
+        public Effector Earthquake(int earthPower, int earthSpeed, int earthTime)
+        {
+            PreWrittenMats = new List<Mat>();
+
             Random rd = new Random();
             
             for (var i = 0; i < Framerate * earthTime; i++)
             {
                 if ((i % earthSpeed == 0) || (i == 0))
                 {
-                    TempWriter.Write(_Translate(Image, 
+                    var result = _Translate(Image,
                         rd.Next(-earthPower, earthPower),
-                        rd.Next(-earthPower, earthPower)));
+                        rd.Next(-earthPower, earthPower));
+                    
+                    var mat = AlphaBlending(result, Position.X, Position.Y);
+                    PreWrittenMats.Add(mat);
                 }
             }
+
+            Cv2.ImWrite(string.Format("__preframe_{0}.jpg", CurrentLayer), PreWrittenMats[0]);
+
+            return this;
         }
-        
-        public void Shake(int shakeDegree, int shakeSpeed, int shakeCount)
+
+        public Effector Shake(int shakeDegree, int shakeSpeed, int shakeCount)
         {
+            PreWrittenMats = new List<Mat>();
+
             for (var i = 0; i < shakeCount; i++)
             {
                 for (var j = 0; j < 2; j++)
                 {
                     for (var k = 0; k < shakeDegree; k += shakeSpeed)
-                        TempWriter.Write(_Rotate(Image, k));
+                        PreWrittenMats.Add(_Rotate(Image, k));
 
                     for (var k = 0; k < 2; k++)
-                        TempWriter.Write(_Rotate(Image, shakeDegree));
+                        PreWrittenMats.Add(_Rotate(Image, shakeDegree));
 
                     for (var k = shakeDegree; k < -shakeDegree; k -= shakeSpeed)
-                        TempWriter.Write(_Rotate(Image, k));
+                        PreWrittenMats.Add(_Rotate(Image, k));
 
                     for (var k = shakeDegree; k < 0; k -= shakeSpeed)
-                        TempWriter.Write(_Rotate(Image, k));
+                        PreWrittenMats.Add(_Rotate(Image, k));
                 }
             }
+
+            Cv2.ImWrite(string.Format("__preframe_{0}.jpg", CurrentLayer), PreWrittenMats[0]);
+
+            return this;
         }
 
-        public void Rotate(int degree, bool way, int speed)
+        public Effector Rotate(int degree, bool way, int speed)
         {
+            PreWrittenMats = new List<Mat>();
+
             if (way)
             {
                 degree = -degree;
@@ -141,132 +252,47 @@ namespace kornsalad
             }
 
             for (var i = 0; i < degree; i += speed)
-                TempWriter.Write(_Rotate(Image, i));
+                PreWrittenMats.Add(_Rotate(Image, i));
 
-            TempWriter.Write(_Rotate(Image, degree));
+            PreWrittenMats.Add(_Rotate(Image, degree));
+
+            Cv2.ImWrite(string.Format("__preframe_{0}.jpg", CurrentLayer), PreWrittenMats[0]);
+
+            return this;
         }
 
-        public void FullRotate(int speed, bool way, int count)
+        public Effector FullRotate(int speed, bool way, int count)
         {
+            PreWrittenMats = new List<Mat>();
+
             if (way)
                 speed = -speed;
 
             for (var i = 0; i < count; i++)
                 for (var j = 0; j < 360; j += speed)
-                    TempWriter.Write(_Rotate(Image, j));
+                    PreWrittenMats.Add(_Rotate(Image, j));
+
+            Cv2.ImWrite(string.Format("__preframe_{0}.jpg", CurrentLayer), PreWrittenMats[0]);
+
+            return this;
         }
 
-        public void Transition(int xDes, int yDes, int speed, int xPos, int yPos)
+        public Effector Transition(int xDes, int yDes, int speed, int xPos, int yPos)
         {
+            PreWrittenMats = new List<Mat>();
+
             speed = speed * 24;
             xPos = 0;
             yPos = 0;
 
             for (var i = 0; i < speed; i++)
             {
-                TempWriter.Write(_Translate(Image, xPos, -yPos));
+                PreWrittenMats.Add(_Translate(Image, xPos, -yPos));
                 xPos = xPos + xDes / speed;
                 yPos = yPos + yDes / speed;
             }
+
+            return this;
         }
-
-        private Mat SetValueByCondition(Mat s, string _operator, int condValue,
-            int valueToBeSet, bool valueAffect)
-        {
-            for (var k = 0; k < s.Rows; k++)
-            {
-                for (var l = 0; l < s.Cols; l++)
-                {
-                    switch(_operator)
-                    {
-                        case "<":
-                            if (s.Get<int>(k, l) < condValue)
-                            {
-                                if (!valueAffect)
-                                    s.Set<int>(k, l, valueToBeSet);
-                                else
-                                    s.Set<int>(k, l, s.Get<int>(k, l) + valueToBeSet);
-                            }
-                            break;
-                        case ">":
-                            if (s.Get<int>(k, l) > condValue)
-                            {
-                                if (!valueAffect)
-                                    s.Set<int>(k, l, valueToBeSet);
-                                else
-                                    s.Set<int>(k, l, s.Get<int>(k, l) + valueToBeSet);
-                            }
-                            break;
-
-                        case "<=":
-                            if (s.Get<int>(k, l) <= condValue)
-                            {
-                                if (!valueAffect)
-                                    s.Set<int>(k, l, valueToBeSet);
-                                else
-                                    s.Set<int>(k, l, s.Get<int>(k, l) + valueToBeSet);
-                            }
-                            break;
-
-                        case ">=":
-                            if (s.Get<int>(k, l) >= condValue)
-                            {
-                                if (!valueAffect)
-                                    s.Set<int>(k, l, valueToBeSet);
-                                else
-                                    s.Set<int>(k, l, s.Get<int>(k, l) + valueToBeSet);
-                            }
-                            break;
-
-                        case "==":
-                            if (s.Get<int>(k, l) == condValue)
-                            {
-                                if (!valueAffect)
-                                    s.Set<int>(k, l, valueToBeSet);
-                                else
-                                    s.Set<int>(k, l, s.Get<int>(k, l) + valueToBeSet);
-                            }
-                            break;
-                        default:
-                            throw new Exception("Unknown operator");
-                    }
-                }
-            }
-
-            return s;
-        }
-
-        /*
-        public void Flash(int count)
-        {
-            var originalHsv = Image.CvtColor(ColorConversionCodes.BGR2HSV);
-            var splitedHsv = originalHsv.Split();
-            var h = splitedHsv[0].Clone();
-            var s = splitedHsv[1].Clone();
-            var v = splitedHsv[2].Clone();
-
-            int increase = 43;
-
-            for (var i = 0; i < count; i++)
-            {
-                for (var j = 0; j < 6; j++)
-                {
-                    var s1 = SetValueByCondition(s, "<", increase, increase, false);
-                    var s2 = SetValueByCondition(s1, ">=", increase, increase, true);
-                    var v1 = SetValueByCondition(v, ">", 255 - increase, 255, false);
-                    var v2 = SetValueByCondition(v1, "<=", 255 - increase, increase, true);
-
-                    Mat dstMat = originalHsv.Clone(); // hard-copy needed
-                    Cv2.Merge(new Mat[] { h, s, v }, dstMat);
-
-                    TempWriter.Write(dstMat.CvtColor(ColorConversionCodes.HSV2BGR));
-                }
-
-                for (var j = 0; j < 6; j++)
-                {
-                    var s1 = SetValueByCondition(s, ">", originalHsv[1] - increase, )
-                }
-            }
-        }*/
     }
 }
