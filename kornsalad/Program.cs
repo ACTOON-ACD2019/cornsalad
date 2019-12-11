@@ -1,6 +1,12 @@
-﻿using RabbitMQ.Client;
+﻿using Newtonsoft.Json;
+using OpenCvSharp;
+using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
+using RabbitMQ.Util;
 using System;
 using System.Collections.Generic;
+using System.Text;
+using System.Threading;
 
 namespace kornsalad
 {
@@ -16,15 +22,15 @@ namespace kornsalad
 
             Console.WriteLine("Completed.");
         }
-        /*
+
         static void TestEncode()
         {
             List<Effector> effectors = new List<Effector>();
 
             for (int i = 0; i < 5; i++)
             {
-                var e = new Effector("demo" + i + ".jpg", 24);
-                e.Initialize();
+                var e = new Effector(23.98, new Size(800, 600));
+                e.Initialize("white");
 
                 // test effects
                 e.Earthquake(20, 2, 2);
@@ -33,7 +39,6 @@ namespace kornsalad
                 e.FullRotate(15, false, 2);
                 e.Transition(400, 400, 5, 0, 0);
 
-                e.Close();
                 effectors.Add(e);
             }
 
@@ -41,23 +46,19 @@ namespace kornsalad
             a.SequentialMerge();
             a.Encode("mp4");
         }
-        */
+
         static void TestEffect()
         {
-            var e = new Effector("1.jpeg", 24);
-            e.Initialize();
-
-            // test effects
-            e.Earthquake(20, 2, 2);
-            e.Shake(2, 1, 3);
-            e.Rotate(90, false, 2);
-            e.FullRotate(15, false, 2);
-            e.Transition(400, 400, 5, 0, 0);
-
-            e.Close();
+            var e = new Effector(30, new Size(1280, 800));
+            e.Initialize("black");
+            e.AddLayer("base.png").None(4)
+             .AddLayer("alpharesized.png").Earthquake(16, 2, 5)
+             .AddLayer("chat.png").Earthquake(10, 2, 2)
+             .AddLayer("alpharesized.png", 10, 10).Earthquake(15, 2, 2);
+            var file = e.Encode();
         }
 
-        /*static void TestRPC()
+        static void TestRPC()
         {
             RpcServer rpcserver = new RpcServer(
                 host: "mq.actoon.sokdak.me",
@@ -66,11 +67,24 @@ namespace kornsalad
             );
 
             rpcserver.Initialize();
-            rpcserver.ListenQueue("rpc_encoding_queue", (model, ea) =>
+            rpcserver.ListenQueue("rpc_encoding_queue", (model , ea) =>
             {
-                var channel = (IModel)model;
-                Console.WriteLine(ea.Body);
+                EventingBasicConsumer _model = (EventingBasicConsumer)model;
+                var channel = _model.Model;
+
+                var prop = channel.CreateBasicProperties();
+                prop.CorrelationId = ea.BasicProperties.CorrelationId;
+
+                // business logics
+                var decodedB64 = Encoding.UTF8.GetString(Convert.FromBase64String(Encoding.UTF8.GetString(ea.Body)));
+                var rpcRequest = JsonConvert.DeserializeObject<Task>(decodedB64);
+                Console.WriteLine("");
+                
+                // end of logics
+                
+                
+                channel.BasicPublish(ea.Exchange, ea.RoutingKey, prop, null);
             });
-        }*/
+        }
     }
 }
