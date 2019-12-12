@@ -18,11 +18,14 @@ namespace kornsalad
      */
     struct Task
     {
-        public string effect { get; set; }
+        public string effect_name { get; set; }
         public string parameters { get; set; }
-        public string cut { get; set; }
+        public string cut_file { get; set; }
+        public string cut_pos_x { get; set; }
+        public string cut_pos_y { get; set; }
         public string image_properties { get; set; } // canvas only
-        public int project { get; set; }
+        public string project_resolution_width { get; set; }
+        public string project_resolution_height { get; set; }
         public string created_at { get; set; }
     }
 
@@ -40,11 +43,5 @@ namespace kornsalad
     {
         public Task[] tasks { get; set; }
         public Cut[] cuts { get; set; }
-    }
-
-    struct RpcResponse
-    {
-        public bool success { get; set; }
-        public string result { get; set; } // base64 encoded zip file
     }
 }

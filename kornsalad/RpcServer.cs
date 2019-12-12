@@ -40,7 +40,10 @@ namespace kornsalad
         {
             Channel.QueueDeclare(
                 queue: queueName,
-                autoDelete: false
+                autoDelete: false,
+                exclusive: false,
+                durable: false,
+                arguments: null
             );
 
             var consumer = new EventingBasicConsumer(Channel);
@@ -48,7 +51,7 @@ namespace kornsalad
 
             Channel.BasicConsume(
                 queue: queueName,
-                autoAck: true,
+                autoAck: false,
                 consumer: consumer
             );
         }
