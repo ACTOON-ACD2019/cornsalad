@@ -5,6 +5,9 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using System.Threading;
+using System.Text;
+
+
 
 namespace kornsalad
 {
@@ -110,16 +113,10 @@ namespace kornsalad
 
         private Mat _Rotate(Mat image, int angle, float[] center=null, double scale=1.0)
         {
-            Point2f _center;
-
-            if (center == null)
-                _center = new Point2f(image.Width / 2, image.Height / 2);
-            else _center = new Point2f(center[0] / 2, center[1] / 2);
-
-            return image.WarpAffine(
-                Cv2.GetRotationMatrix2D(_center, angle, scale),
-                image.Size()
-            );
+            Mat M = Cv2.GetRotationMatrix2D(new Point2f(image.Width / 2, image.Height / 2), angle, 1);
+            Mat dst = new Mat();
+            Cv2.WarpAffine(image, dst, M, image.Size());
+            return dst;
         }
         
         private Mat AlphaBlending(Mat data, int posX, int posY)
@@ -217,22 +214,38 @@ namespace kornsalad
         public Effector Shake(int shakeDegree, int shakeSpeed, int shakeCount)
         {
             PreWrittenMats = new List<Mat>();
-
             for (var i = 0; i < shakeCount; i++)
             {
                 for (var j = 0; j < 2; j++)
                 {
                     for (var k = 0; k < shakeDegree; k += shakeSpeed)
-                        PreWrittenMats.Add(_Rotate(Image, k));
-
+                    {
+                        var result = _Rotate(Image, k);
+                        var mat = AlphaBlending(result, Position.X, Position.Y);
+                        PreWrittenMats.Add(mat);
+                    }
                     for (var k = 0; k < 2; k++)
-                        PreWrittenMats.Add(_Rotate(Image, shakeDegree));
-
-                    for (var k = shakeDegree; k < -shakeDegree; k -= shakeSpeed)
-                        PreWrittenMats.Add(_Rotate(Image, k));
-
-                    for (var k = shakeDegree; k < 0; k -= shakeSpeed)
-                        PreWrittenMats.Add(_Rotate(Image, k));
+                    {
+                        var result = _Rotate(Image, shakeDegree);
+                        var mat = AlphaBlending(result, Position.X, Position.Y);
+                        PreWrittenMats.Add(mat);
+                        
+                    }
+                    
+                    for (var k = shakeDegree; k > -shakeDegree; k -= shakeSpeed)
+                    {
+                        var result = _Rotate(Image, k);
+                        var mat = AlphaBlending(result, Position.X, Position.Y);
+                        PreWrittenMats.Add(mat);
+                    }
+                    
+                    for (var k = -shakeDegree; k < 0; k += shakeSpeed)
+                    {
+                        var result = _Rotate(Image, k);
+                        var mat = AlphaBlending(result, Position.X, Position.Y);
+                        PreWrittenMats.Add(mat);
+                    }
+                    
                 }
             }
 
@@ -243,20 +256,29 @@ namespace kornsalad
 
         public Effector Rotate(int degree, bool way, int speed)
         {
+
+            Cv2.ImWrite(string.Format("first.jpg", CurrentLayer), Image);
             PreWrittenMats = new List<Mat>();
-
-            if (way)
+            
+            if (way) //CounterClockwise
             {
-                degree = -degree;
-                speed = -speed;
+                for (var i = 0; i > -degree; i -= speed)
+                {
+                    var result = _Rotate(Image,i);
+                    var mat = AlphaBlending(result, Position.X, Position.Y);
+                    PreWrittenMats.Add(mat);
+                }
             }
-
-            for (var i = 0; i < degree; i += speed)
-                PreWrittenMats.Add(_Rotate(Image, i));
-
+            else //Clockwise
+            {
+                for (var i = 0; i < degree; i += speed)
+                {
+                    var result = _Rotate(Image, i);
+                    var mat = AlphaBlending(result, Position.X, Position.Y);
+                    PreWrittenMats.Add(mat);
+                }
+            }
             PreWrittenMats.Add(_Rotate(Image, degree));
-
-            Cv2.ImWrite(string.Format("__preframe_{0}.jpg", CurrentLayer), PreWrittenMats[0]);
 
             return this;
         }
@@ -265,31 +287,46 @@ namespace kornsalad
         {
             PreWrittenMats = new List<Mat>();
 
-            if (way)
+            if (way) //CounterClockwise
+            {
+                for (var i = 0; i < count; i++)
+                    for (var j = 360; j > 0; j -= speed)
+                    {
+                        var result = _Rotate(Image, j);
+                        var mat = AlphaBlending(result, Position.X, Position.Y);
+                        PreWrittenMats.Add(mat);
+                    }
+            }
+            else //Clockwise
+            {
+                for (var i = 0; i < count; i++)
+                    for (var j = 0; j < 360; j += speed)
+                    {
+                        var result = _Rotate(Image, j);
+                        var mat = AlphaBlending(result, Position.X, Position.Y);
+                        PreWrittenMats.Add(mat);
+                    }
+            }
                 speed = -speed;
 
-            for (var i = 0; i < count; i++)
-                for (var j = 0; j < 360; j += speed)
-                    PreWrittenMats.Add(_Rotate(Image, j));
+            
 
             Cv2.ImWrite(string.Format("__preframe_{0}.jpg", CurrentLayer), PreWrittenMats[0]);
 
             return this;
         }
 
-        public Effector Transition(int xDes, int yDes, int speed, int xPos, int yPos)
+        public Effector Transition(int xStart, int yStart, int time, int xDes, int yDes)
         {
             PreWrittenMats = new List<Mat>();
-
-            speed = speed * 24;
-            xPos = 0;
-            yPos = 0;
-
-            for (var i = 0; i < speed; i++)
+            int frame = time * (int)Framerate;
+            for (var i = 0; i < frame; i++)
             {
-                PreWrittenMats.Add(_Translate(Image, xPos, -yPos));
-                xPos = xPos + xDes / speed;
-                yPos = yPos + yDes / speed;
+                var result = _Translate(Image, xStart, -yStart);
+                var mat = AlphaBlending(result, Position.X, Position.Y);
+                PreWrittenMats.Add(mat);
+                xStart = xStart + xDes/time;
+                yStart = yStart + yDes/time;
             }
 
             return this;
