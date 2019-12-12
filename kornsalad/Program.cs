@@ -12,6 +12,7 @@ using System.Net.Http;
 using System.Net;
 using System.IO.Compression;
 using System.IO;
+using kornsalad.EffectParameters;
 
 namespace kornsalad
 {
@@ -127,7 +128,7 @@ namespace kornsalad
                         {
                             cut_file = c.file,
                             effect_name = "appear",
-                            parameters = "{'duration': 3}",
+                            parameters = "{'time': 3}",
                             cut_pos_x = c.pos_x,
                             cut_pos_y = c.pos_y
                         };
@@ -196,17 +197,39 @@ namespace kornsalad
             else
                 effector.AddLayer(task.cut_file); // will produces centered image
 
-            var effectparse = task.parameters;
-
+            var effectToBeParsed = task.parameters;
+            
             switch (task.effect_name)
             {
                 case "earthquake":
-                    Console.WriteLine(" [i] make earthquake");
-                    effector.Earthquake(20, 2, 2);
+                    var param = JsonConvert.DeserializeObject<Earthquake>(task.parameters);
+                    Console.WriteLine(" [i] make earthquake with param [power: {0}, speed: {1}, time: {2}]",
+                        param.power, param.speed, param.time);
+                    effector.Earthquake(param.power, param.speed, param.time);
                     break;
                 case "appear":
-                    Console.WriteLine(" [i] make appear");
-                    effector.None(3);
+                    var aparam = JsonConvert.DeserializeObject<Appear>(task.parameters);
+                    Console.WriteLine(" [i] make appear with param [time: {0}]",
+                        aparam.time);
+                    effector.None(aparam.time);
+                    break;
+                case "shake":
+                    var sparam = JsonConvert.DeserializeObject<Shake>(task.parameters);
+                    Console.WriteLine(" [i] make shake with param [degree: {0}, speed: {1}, count: {2}]",
+                       sparam.degree, sparam.speed, sparam.count);
+                    effector.Shake(sparam.degree, sparam.speed, sparam.count);
+                    break;
+                case "rotate":
+                    var rparam = JsonConvert.DeserializeObject<Rotate>(task.parameters);
+                    Console.WriteLine(" [i] make rotate with param [degree: {0}, way: {1}, speed: {2}]",
+                       rparam.degree, rparam.way ? "clockwise" : "counter-clockwise", rparam.speed);
+                    effector.Rotate(rparam.degree, rparam.way, rparam.speed);
+                    break;
+                case "transition":
+                    var tparam = JsonConvert.DeserializeObject<Transition>(task.parameters);
+                    Console.WriteLine(" [i] make transition with param [xdes,ydes: ({0},{1}), speed: {2}, xpos,ypos: ({3},{4})]",
+                       tparam.xdes, tparam.ydes, tparam.speed, tparam.xpos, tparam.ypos);
+                    effector.Transition(tparam.xdes, tparam.ydes, tparam.speed, tparam.xpos, tparam.ypos);
                     break;
                 default:
                     Console.WriteLine(" [!] not supported effect {0}, fallback to appear with 3 seconds",
