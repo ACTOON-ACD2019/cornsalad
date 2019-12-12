@@ -16,8 +16,8 @@ namespace kornsalad
         {
             Console.WriteLine("Hello World!");
 
-            TestEffect();
-            //TestRPC();
+            //TestEffect();
+            TestRPC();
             //TestEncode();
 
             Console.WriteLine("Completed.");
@@ -75,14 +75,13 @@ namespace kornsalad
                 var prop = channel.CreateBasicProperties();
                 prop.CorrelationId = ea.BasicProperties.CorrelationId;
 
-                // business logics
                 var decodedB64 = Encoding.UTF8.GetString(Convert.FromBase64String(Encoding.UTF8.GetString(ea.Body)));
-                var rpcRequest = JsonConvert.DeserializeObject<Task>(decodedB64);
-                Console.WriteLine("");
-                
+                var rpcRequest = JsonConvert.DeserializeObject<RpcRequest>(decodedB64);
+
+                // business logics
+                // TODO: write a logic that process encoding tasks
                 // end of logics
-                
-                
+
                 channel.BasicPublish(ea.Exchange, ea.RoutingKey, prop, null);
             });
         }

@@ -16,7 +16,7 @@ namespace kornsalad
 
         {"effect": 1, "cut": 67, "image_properties": "{}", "project": 2, "parameters": "20,2,2", "created_at": "2019-12-10T01:37:06.017609Z"}
      */
-    class Task
+    struct Task
     {
         public string effect { get; set; }
         public string parameters { get; set; }
@@ -26,12 +26,23 @@ namespace kornsalad
         public string created_at { get; set; }
     }
 
-    class RpcRequest
+    struct Cut
     {
-        public Task[] Task { get; set; }
+        public string file { get; set; }
+        public string type { get; set; }
+        public string sequence { get; set; }
+        public string sub_sequence { get; set; }
+        public string pos_x { get; set; }
+        public string pos_y { get; set; }
     }
 
-    class RpcResponse
+    struct RpcRequest
+    {
+        public Task[] tasks { get; set; }
+        public Cut[] cuts { get; set; }
+    }
+
+    struct RpcResponse
     {
         public bool success { get; set; }
         public string result { get; set; } // base64 encoded zip file
